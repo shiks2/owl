@@ -321,3 +321,33 @@ This document maintains a chronological record of all user prompts, tasks, and t
   - Replaced the `extractResponseText` helper with a robust `extractJson` helper that unwraps the `response` field, parses strings (stripping optional markdown fences), and returns already-parsed objects as-is.
   - Updated both call sites (`generateRepoMap`, `generateQuestions`) to use `extractJson`.
   - Verified `npm run check` passes.
+
+### Prompt #19 — [2026-10-08 00:50:00 IST]
+
+- **Prompt**:
+
+  > (User pasted two errors after pasting a repo link: a stale `"[object Object]" is not valid JSON` at `generateRepoMap`, followed by `SyntaxError: Unexpected end of JSON input` at `extractJson`/`generateQuestions` after an HMR update.)
+
+- **Category**: Bug Fix / Workers AI flaky JSON generation
+- **Objective**: Make repo-map and question generation resilient to the model returning empty/invalid JSON responses.
+- **Status**: Completed
+- **Actions Taken**:
+  - Recognized the first error was stale (pre-HMR) code; the live failure was `generateQuestions` receiving an empty response (`JSON.parse("")` → "Unexpected end of JSON input").
+  - Rewrote `src/utils/ai.ts`: added a `runJson` helper that retries up to 4 times (2 with `response_format: json_object`, then 2 without) to work around model flakiness.
+  - Hardened `extractJson` to throw a clear error on empty responses (so retries trigger) and strip markdown fences.
+  - Verified `npm run check` passes.
+
+### Prompt #20 — [2026-10-08 01:05:00 IST]
+
+- **Prompt**:
+
+  > (User pasted the generated interview question, which was garbled with duplicated words: "HowHow does the Sup does the Supabase client initializationabase client initialization in script.js in script.js handle authentication and handle authentication and authorization for wait authorization for waitlist submissions?list submissions?" and noted "this is the question it generated".)
+
+- **Category**: Bug Fix / LLM output quality (repetition looping)
+- **Objective**: Stop the fp8 model from garbling the first interview question.
+- **Status**: Completed
+- **Actions Taken**:
+  - Diagnosed the garbling as the fp8 Llama model looping when asked via `streamText` to reproduce the question verbatim ("say exactly this question and nothing else").
+  - Removed the redundant model round-trip: the first question is now streamed directly to the client as an assistant message using `createUIMessageStream` + `createUIMessageStreamResponse` (new `textMessageStreamResponse` helper in `src/server.ts`), no model call.
+  - Verified `npm run check` passes.
+  - Noted the question content (Supabase waitlist) is itself a hallucination unrelated to the repo — a separate model-quality concern.

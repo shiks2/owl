@@ -4,6 +4,8 @@ import { getSchedulePrompt, scheduleSchema } from "agents/schedule";
 import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
 import {
   convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
   pruneMessages,
   stepCountIs,
   streamText,
@@ -17,6 +19,23 @@ import {
   fetchFileContents
 } from "./utils/github";
 import { generateRepoMap, generateQuestions } from "./utils/ai";
+
+// Stream a known piece of text as an assistant UI message WITHOUT calling a
+// model. The fp8 Llama model tends to loop/repeat when asked to reproduce a
+// question verbatim, so we emit the already-generated question directly.
+function textMessageStreamResponse(text: string): Response {
+  const stream = createUIMessageStream({
+    execute: ({ writer }) => {
+      const partId = `text-${crypto.randomUUID()}`;
+      writer.write({ type: "start" });
+      writer.write({ type: "text-start", id: partId });
+      writer.write({ type: "text-delta", id: partId, delta: text });
+      writer.write({ type: "text-end", id: partId });
+      writer.write({ type: "finish", finishReason: "stop" });
+    }
+  });
+  return createUIMessageStreamResponse({ stream });
+}
 
 export class ChatAgent extends AIChatAgent<Env> {
   maxPersistedMessages = 100;
@@ -117,15 +136,7 @@ export class ChatAgent extends AIChatAgent<Env> {
       this.broadcast(JSON.stringify({ type: "clear-status" }));
 
       const firstQuestion = questions[0].text;
-      const workersai = createWorkersAI({ binding: this.env.AI });
-      const result = streamText({
-        model: workersai("@cf/meta/llama-3.3-70b-instruct-fp8-fast", {
-          sessionAffinity: this.sessionAffinity
-        }),
-        prompt: `You are an interviewer. Start the interview by asking exactly this question and saying absolutely nothing else: "${firstQuestion}"`
-      });
-
-      return result.toUIMessageStreamResponse();
+      return textMessageStreamResponse(firstQuestion);
     }
 
     const mcpTools = this.mcp.getAITools();

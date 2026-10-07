@@ -1,7 +1,10 @@
 // src/utils/ai.ts
-// src/utils/ai.ts
 import type { RepoMap, Question } from "../types";
 import type { GithubFile } from "./github";
+
+const MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+
+type ChatMessage = { role: string; content: string };
 
 // Workers AI `.run` returns a union (object | string | async response).
 // With `response_format: json_object`, the `response` field may be a JSON
@@ -16,9 +19,34 @@ function extractJson(output: unknown): unknown {
     let text = value.trim();
     const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
     if (fence) text = fence[1].trim();
+    if (!text) throw new Error("Model returned an empty response");
     return JSON.parse(text);
   }
   return value;
+}
+
+// The model is occasionally flaky with JSON output (empty responses, invalid
+// JSON). Retry a few times, first with JSON mode (better formatting) and then
+// falling back to a plain prompt in case constrained output is the problem.
+async function runJson(env: Env, messages: ChatMessage[]): Promise<unknown> {
+  const attempts: boolean[] = [true, true, false, false];
+  let lastError: unknown = new Error("Failed to generate JSON response");
+
+  for (const useJsonMode of attempts) {
+    try {
+      const response = useJsonMode
+        ? await env.AI.run(MODEL, {
+            messages,
+            response_format: { type: "json_object" as const }
+          })
+        : await env.AI.run(MODEL, { messages });
+      return extractJson(response);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
 }
 
 // 1. Generate the map of the repository
@@ -43,18 +71,12 @@ You MUST respond with ONLY a valid JSON object matching this exact structure:
   "fileSummaries": { "src/index.ts": "Main entry point" }
 }`;
 
-  const response = await env.AI.run(
-    "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    {
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: `Analyze these files:\n${contextString}` }
-      ],
-      response_format: { type: "json_object" }
-    }
-  );
+  const result = await runJson(env, [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: `Analyze these files:\n${contextString}` }
+  ]);
 
-  return extractJson(response) as RepoMap;
+  return result as RepoMap;
 }
 
 // 2. Generate interview questions based on the map
@@ -76,17 +98,11 @@ You MUST respond with ONLY a valid JSON object containing an array called "quest
   ]
 }`;
 
-  const response = await env.AI.run(
-    "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-    {
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: JSON.stringify(repoMap) }
-      ],
-      response_format: { type: "json_object" }
-    }
-  );
+  const result = await runJson(env, [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: JSON.stringify(repoMap) }
+  ]);
 
-  const parsed = extractJson(response) as { questions: Question[] };
+  const parsed = result as { questions: Question[] };
   return parsed.questions;
 }

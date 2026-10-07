@@ -45,18 +45,21 @@ This project proudly fulfills the core requirements of the Cloudflare AI Challen
 To run Owl locally, follow these steps:
 
 ### 1. Clone the repository
+
 ```bash
 git clone https://github.com/your-username/owl.git
 cd owl
 ```
 
 ### 2. Install dependencies
+
 ```bash
 npm install
 ```
 
 ### 3. Configuration
-Ensure your `wrangler.json` (or `wrangler.jsonc`) is properly configured with your Cloudflare AI bindings. 
+
+Ensure your `wrangler.json` (or `wrangler.jsonc`) is properly configured with your Cloudflare AI bindings.
 You will also need to provide a GitHub Personal Access Token to avoid rate limits during codebase ingestion:
 
 ```bash
@@ -64,7 +67,9 @@ npx wrangler secret put GITHUB_TOKEN
 ```
 
 ### 4. Run Locally
+
 Start the development server:
+
 ```bash
 npm run dev
 ```

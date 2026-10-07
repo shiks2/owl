@@ -10,7 +10,12 @@ import {
   tool
 } from "ai";
 import { z } from "zod";
-import { parseGitHubUrl, fetchRepoTree, getImportantFiles, fetchFileContents } from "./utils/github";
+import {
+  parseGitHubUrl,
+  fetchRepoTree,
+  getImportantFiles,
+  fetchFileContents
+} from "./utils/github";
 import { generateRepoMap, generateQuestions } from "./utils/ai";
 
 export class ChatAgent extends AIChatAgent<Env> {
@@ -64,19 +69,46 @@ export class ChatAgent extends AIChatAgent<Env> {
 
     if (githubRepo) {
       await this.ctx.storage.put("state", "ingesting");
-      this.broadcast(JSON.stringify({ type: "status", status: "Fetching repository..." }));
+      this.broadcast(
+        JSON.stringify({ type: "status", status: "Fetching repository..." })
+      );
 
-      const githubToken = (this.env as any).GITHUB_TOKEN;
-      const repoTree = await fetchRepoTree(githubRepo.owner, githubRepo.repo, githubToken);
+      const githubToken = (this.env as Env & { GITHUB_TOKEN?: string })
+        .GITHUB_TOKEN;
+      const repoTree = await fetchRepoTree(
+        githubRepo.owner,
+        githubRepo.repo,
+        githubToken
+      );
       const importantFiles = getImportantFiles(repoTree.tree, 15);
-      const fileContents = await fetchFileContents(githubRepo.owner, githubRepo.repo, importantFiles, githubToken);
+      const fileContents = await fetchFileContents(
+        githubRepo.owner,
+        githubRepo.repo,
+        importantFiles,
+        githubToken
+      );
 
-      this.broadcast(JSON.stringify({ type: "status", status: "Analyzing codebase architecture with Llama 3.3..." }));
+      this.broadcast(
+        JSON.stringify({
+          type: "status",
+          status: "Analyzing codebase architecture with Llama 3.3..."
+        })
+      );
 
-      const repoMap = await generateRepoMap(this.env, githubRepo.owner, githubRepo.repo, fileContents);
+      const repoMap = await generateRepoMap(
+        this.env,
+        githubRepo.owner,
+        githubRepo.repo,
+        fileContents
+      );
       await this.ctx.storage.put("repoMap", repoMap);
 
-      this.broadcast(JSON.stringify({ type: "status", status: "Generating your interview questions..." }));
+      this.broadcast(
+        JSON.stringify({
+          type: "status",
+          status: "Generating your interview questions..."
+        })
+      );
 
       const questions = await generateQuestions(this.env, repoMap);
       await this.ctx.storage.put("questions", questions);
@@ -90,7 +122,7 @@ export class ChatAgent extends AIChatAgent<Env> {
         model: workersai("@cf/meta/llama-3.3-70b-instruct-fp8-fast", {
           sessionAffinity: this.sessionAffinity
         }),
-        prompt: `You are an interviewer. Start the interview by asking exactly this question and saying absolutely nothing else: "${firstQuestion}"`,
+        prompt: `You are an interviewer. Start the interview by asking exactly this question and saying absolutely nothing else: "${firstQuestion}"`
       });
 
       return result.toUIMessageStreamResponse();

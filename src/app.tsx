@@ -7,7 +7,6 @@ import type { ChatAgent } from "./server";
 import {
   Badge,
   Button,
-  Empty,
   InputArea,
   PoweredByCloudflare,
   Surface,
@@ -708,11 +707,19 @@ function Chat() {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-5 py-6 space-y-5">
-          {[{
-            id: "onboarding-greeting",
-            role: "assistant",
-            parts: [{ type: "text", text: "Hi! Please paste the link of a public GitHub repository to get started." }]
-          } as unknown as UIMessage, ...messages].map((message, index, arr) => {
+          {[
+            {
+              id: "onboarding-greeting",
+              role: "assistant",
+              parts: [
+                {
+                  type: "text",
+                  text: "Hi! Please paste the link of a public GitHub repository to get started."
+                }
+              ]
+            } as unknown as UIMessage,
+            ...messages
+          ].map((message, index, arr) => {
             const isUser = message.role === "user";
             const isLastAssistant =
               message.role === "assistant" && index === arr.length - 1;
@@ -829,7 +836,10 @@ function Chat() {
             <div className="flex justify-start">
               <Surface className="max-w-[85%] px-4 py-2.5 rounded-xl ring ring-kumo-line">
                 <div className="flex items-center gap-2">
-                  <GearIcon size={14} className="text-kumo-inactive animate-spin" />
+                  <GearIcon
+                    size={14}
+                    className="text-kumo-inactive animate-spin"
+                  />
                   <Text size="xs" variant="secondary">
                     {transientStatus}
                   </Text>

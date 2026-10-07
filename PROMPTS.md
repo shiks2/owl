@@ -260,3 +260,64 @@ This document maintains a chronological record of all user prompts, tasks, and t
   - Removed the unused `Empty` import from `@cloudflare/kumo` in `src/app.tsx`.
   - Typing `env` as `Env` surfaced TS2339 errors on `response.response` (Workers AI `.run` returns a union). Added an `extractResponseText` helper to normalize `string | { response: string } | async-response` output before `JSON.parse`.
   - Verified `npm run check` now passes (formatting, oxlint, and tsc all clean).
+
+### Prompt #15 — [2026-10-08 00:15:00 IST]
+
+- **Prompt**:
+
+  > (User pasted browser console errors showing `GET .../get-messages 500` and repeated `WebSocket connection ... failed`, and asked: "the fix you did now broke the production i have setup the env using wrangler secret put cmd directly in to production instead of development now what to do")
+
+- **Category**: Debugging / Production Incident / Dependencies
+- **Objective**: Diagnose and fix the production 500 + WebSocket failure after deployment.
+- **Status**: Completed
+- **Actions Taken**:
+  - Used `wrangler tail` to capture the actual production exception: `TypeError: host._withAgentSpan is not a function`.
+  - Root-caused it as a dependency mismatch, NOT the earlier type-only code changes: `@cloudflare/ai-chat@0.9.4` (resolved from `^0.9.3`) calls `_withAgentSpan`, which only exists in `agents@>=0.18.0`, but `agents@^0.17.4` resolved to `0.17.4`.
+  - Verified publish timeline: ai-chat 0.9.3 (2026-06-30) / 0.9.4 (2026-07-22) paired with agents 0.17.4 (2026-07-13) / 0.18.0 (2026-07-22).
+  - Pinned `@cloudflare/ai-chat` to `"0.9.3"` (exact) in `package.json` to match the installed `agents@0.17.4`; ran `npm install`.
+  - Confirmed `node_modules` no longer references `_withAgentSpan`, `npm run check` passes, and `vite build` produces a worker bundle free of `_withAgentSpan`.
+  - Clarified that `wrangler secret put GITHUB_TOKEN` (production) is correct and unrelated to the 500; local dev needs a `.dev.vars` file.
+
+### Prompt #16 — [2026-10-08 00:25:00 IST]
+
+- **Prompt**:
+
+  > (User pasted an `APICallError` stack trace: `5035: Model @cf/moonshotai/kimi-k2.7-code is not available on the Workers Free plan`, and asked: "now im getting this error what are the chances that im getting this same errro in production as well?")
+
+- **Category**: Debugging / Workers AI / Plan & Model Availability
+- **Objective**: Determine whether the local Workers AI "not available on Free plan" error will also occur in production, and advise on a fix.
+- **Status**: Completed
+- **Actions Taken**:
+  - Confirmed `wrangler.jsonc` uses `"ai": { "binding": "AI", "remote": true }`, so local `wrangler dev` already calls the real Workers AI API (not a local stub).
+  - Verified via Cloudflare docs that `@cf/moonshotai/kimi-k2.7-code` is "not available through standard Workers Free billing. To use it, upgrade to the Workers Paid plan".
+  - Verified `@cf/meta/llama-3.3-70b-instruct-fp8-fast` (already used for repo-map/questions) is Beta and has no Free-plan restriction notice.
+  - Concluded the error is account-plan-based and will occur identically in production (~100% chance), since local and production share the same account plan.
+  - Advised two fixes: upgrade to Workers Paid, or swap the default chat model (server.ts line 135) to a Free-plan model such as `@cf/meta/llama-3.3-70b-instruct-fp8-fast`.
+
+### Prompt #17 — [2026-10-08 00:30:00 IST]
+
+- **Prompt**:
+
+  > "swap to freer model make it quick"
+
+- **Category**: Bug Fix / Workers AI model swap
+- **Objective**: Replace the paid-only default chat model with a Free-plan model.
+- **Status**: Completed
+- **Actions Taken**:
+  - Changed `src/server.ts` line 135 from `@cf/moonshotai/kimi-k2.7-code` (Workers Paid only) to `@cf/meta/llama-3.3-70b-instruct-fp8-fast` (Beta, Free plan).
+  - Verified `npm run check` passes (formatting, oxlint, tsc).
+
+### Prompt #18 — [2026-10-08 00:40:00 IST]
+
+- **Prompt**:
+
+  > (User pasted an error: `SyntaxError: "[object Object]" is not valid JSON at generateRepoMap (src/utils/ai.ts:49:15)` that occurred after pasting a real GitHub repo link.)
+
+- **Category**: Bug Fix / Workers AI JSON parsing
+- **Objective**: Fix the JSON parse failure when generating the repo map from a real GitHub repository.
+- **Status**: Completed
+- **Actions Taken**:
+  - Root-caused: with `response_format: json_object`, Workers AI returns the `response` field as an already-parsed object (not a string), so `String(response.response)` produced `"[object Object]"` which then failed `JSON.parse`.
+  - Replaced the `extractResponseText` helper with a robust `extractJson` helper that unwraps the `response` field, parses strings (stripping optional markdown fences), and returns already-parsed objects as-is.
+  - Updated both call sites (`generateRepoMap`, `generateQuestions`) to use `extractJson`.
+  - Verified `npm run check` passes.

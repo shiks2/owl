@@ -4,13 +4,21 @@ import type { RepoMap, Question } from "../types";
 import type { GithubFile } from "./github";
 
 // Workers AI `.run` returns a union (object | string | async response).
-// Normalize it to the generated text so callers can safely JSON.parse it.
-function extractResponseText(output: unknown): string {
-  if (typeof output === "string") return output;
-  if (output && typeof output === "object" && "response" in output) {
-    return String((output as { response: unknown }).response);
+// With `response_format: json_object`, the `response` field may be a JSON
+// string OR an already-parsed object depending on the model/runtime.
+// Normalize everything to the parsed JSON value.
+function extractJson(output: unknown): unknown {
+  let value = output;
+  if (value && typeof value === "object" && "response" in value) {
+    value = (value as { response: unknown }).response;
   }
-  return "";
+  if (typeof value === "string") {
+    let text = value.trim();
+    const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence) text = fence[1].trim();
+    return JSON.parse(text);
+  }
+  return value;
 }
 
 // 1. Generate the map of the repository
@@ -46,7 +54,7 @@ You MUST respond with ONLY a valid JSON object matching this exact structure:
     }
   );
 
-  return JSON.parse(extractResponseText(response)) as RepoMap;
+  return extractJson(response) as RepoMap;
 }
 
 // 2. Generate interview questions based on the map
@@ -79,6 +87,6 @@ You MUST respond with ONLY a valid JSON object containing an array called "quest
     }
   );
 
-  const parsed = JSON.parse(extractResponseText(response));
-  return parsed.questions as Question[];
+  const parsed = extractJson(response) as { questions: Question[] };
+  return parsed.questions;
 }

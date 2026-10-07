@@ -60,3 +60,16 @@ If the application uses Durable Objects or Workflows, refer to the relevant best
 
 - Durable Objects: https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/
 - Workflows: https://developers.cloudflare.com/workflows/build/rules-of-workflows/
+
+## Prompt History & Logging Rule
+
+- **MANDATORY**: For EVERY user prompt/request received in this workspace, you MUST log the prompt to `PROMPTS.md` in chronological order.
+- Each entry in `PROMPTS.md` must include:
+  - Entry header (e.g. `### Prompt #N — [YYYY-MM-DD HH:MM:SS TZ]`)
+  - **Prompt**: Exact quote or text of user input
+  - **Category**: Area/type of work
+  - **Objective**: Key goal/deliverable
+  - **Status**: Status of work (In Progress / Completed / Failed)
+  - **Actions Taken**: Bullet points summarizing the actions performed, files modified, or results delivered.
+- Update `PROMPTS.md` during or at the end of handling every request.
+

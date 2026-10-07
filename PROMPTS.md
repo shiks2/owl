@@ -1,0 +1,159 @@
+# Prompt History
+
+This document maintains a chronological record of all user prompts, tasks, and their corresponding execution summaries.
+
+---
+
+## Log Entries
+
+### Prompt #1 — [2026-10-07 21:58:46 IST]
+
+- **Prompt**:
+  > i need to save every prompt in to PROPMT.md  
+  > prompt history as per rules
+
+- **Category**: Workflow / Prompt Logging & Rules Setup
+- **Objective**: Configure prompt history tracking in `PROMPTS.md` and establish permanent instructions in `AGENTS.md` to ensure all subsequent prompts are logged.
+- **Status**: Completed
+- **Actions Taken**:
+  1. Created structured format in [PROMPTS.md](file:///c:/Users/ratho/OneDrive/Desktop/sachin/ai/owl/PROMPTS.md) to track all future prompts with timestamps, prompt content, objectives, and outcomes.
+  2. Updated [AGENTS.md](file:///c:/Users/ratho/OneDrive/Desktop/sachin/ai/owl/AGENTS.md) with a mandatory rule requiring the agent to append every user prompt and its resolution to `PROMPTS.md`.
+
+### Prompt #2 — [2026-10-07 22:23:07 IST]
+
+- **Prompt**:
+  > /ponytail found this bug Branch mismatch (silent failure). fetchRepoTree falls back from main to master internally, but returns only the tree. Your caller then passes branch = 'main' by default to fetchFileContents, so for a master repo every raw fetch returns 404 and gets quietly dropped by return null. You'd get an empty file list with no error. It also breaks on repos whose default branch is something else, like develop.
+  > 
+  > The fix is to stop guessing. As far as I know, HEAD works as the ref in both places, but test it on a repo whose default branch isn't main
+  > 
+  > `https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`
+  > `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${file.path}`
+  > 
+  > Note: Dont modify code without my approval
+
+- **Category**: Bug Investigation & Verification / GitHub API Ref Handling
+- **Objective**: Verify if `HEAD` ref works across GitHub Git Trees API and `raw.githubusercontent.com` on repositories with non-main default branches (e.g., `master`, `develop`, `unstable`), and propose code changes for user approval without modifying production code directly.
+- **Status**: Completed
+- **Actions Taken**:
+  - Ran live test against multiple GitHub repositories with non-`main` default branches (`torvalds/linux` on `master`, `git/git` on `master`, `redis/redis` on `unstable`).
+  - Verified that both `https://api.github.com/repos/${owner}/${repo}/git/trees/HEAD?recursive=1` (200 OK) and `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${file.path}` (200 OK) resolve directly to the repo's default branch.
+  - Prepared the exact proposed diff for `src/utils/github.ts` using `branch = 'HEAD'` default without touching code per user requirement.
+
+### Prompt #3 — [2026-10-07 22:26:45 IST]
+
+- **Prompt**:
+  > /ponytail  Then remove the branch parameter everywhere.
+
+- **Category**: Code Refactoring / API Simplification
+- **Objective**: Remove the redundant `branch` parameter from `fetchRepoTree` and `fetchFileContents` in `src/utils/github.ts`, directly using `HEAD` for all requests.
+- **Status**: Completed
+- **Actions Taken**:
+  - Removed the `branch` parameter from [fetchRepoTree](file:///c:/Users/ratho/OneDrive/Desktop/sachin/ai/owl/src/utils/github.ts#L20) and hardcoded `HEAD` in the Trees API URL.
+  - Removed the `branch` parameter from [fetchFileContents](file:///c:/Users/ratho/OneDrive/Desktop/sachin/ai/owl/src/utils/github.ts#L75) and hardcoded `HEAD` in the raw content URL.
+  - Executed `test/test-github.ts` to verify tree fetching and raw file retrieval end-to-end.
+
+### Prompt #4 — [2026-10-07 22:31:52 IST]
+
+- **Prompt**:
+  > /ponytail  @[TerminalName: powershell, ProcessId: 12020] I have attached the console output 
+  > the output i got after i ran the test-github.ts file is raw binary content of the .zip file. Now im using the         'Accept': 'application/vnd.github.v3+json', in the header still why im getting the raw content instead of json?
+
+- **Category**: Technical Explanation / Architecture Clarification
+- **Objective**: Clarify why the terminal output showed file text contents instead of tree JSON, explain the 2-step workflow (`fetchRepoTree` vs `fetchFileContents`), explain what `:Zone.Identifier` files are, and propose ignoring them.
+- **Status**: Completed
+- **Actions Taken**:
+  - Analyzed the output from `test/test-github.ts` and explained how step 1 retrieves JSON tree while step 2 intentionally fetches raw file code contents.
+  - Clarified that no `.zip` or binary data was returned—the printed content is plaintext source code (`README.md`, `main.go`, etc.) and Windows NTFS `:Zone.Identifier` stream artifacts committed to the repository.
+  - Proposed adding `:Zone.Identifier` to `ignorePatterns` in `getImportantFiles`.
+
+### Prompt #5 — [2026-10-07 22:34:08 IST]
+
+- **Prompt**:
+  > /ponytail  sure i want to add an filter to remove the OS junks from the output
+
+- **Category**: Code Enhancement / OS Artifact Filtering
+- **Objective**: Filter out Windows NTFS metadata (`:Zone.Identifier`, `Thumbs.db`, `desktop.ini`), macOS metadata (`._*`, `.DS_Store`), and hidden files from the file tree selection in `getImportantFiles`.
+- **Status**: Completed
+- **Actions Taken**:
+  - Updated `ignorePatterns` in [getImportantFiles](file:///c:/Users/ratho/OneDrive/Desktop/sachin/ai/owl/src/utils/github.ts#L42) to filter `:Zone.Identifier`, Windows metadata (`Thumbs.db`, `desktop.ini`), macOS AppleDouble files (`._*`), and root/nested hidden files (`(^|/)\.`).
+  - Executed `test/test-github.ts` and verified all `:Zone.Identifier` junk entries were removed and replaced by clean repository source files (`go.mod`, `main.go`, `seed.go`, `main.dart`, `AndroidManifest.xml`, etc.).
+
+### Prompt #6 — [2026-10-07 22:37:38 IST]
+
+- **Prompt**:
+  > /ponytail parseGitHubUrl: strip a trailing .git, accept www.github.com, and validate owner and repo against ^[A-Za-z0-9_.-]+$. You're building request URLs from user input, so this keeps odd characters out.
+  > Replace any with a TreeItem type (path, type, sha, size). It will connect to your RepoMap types later.
+  > User-Agent strings differ between the two functions. Use one.
+  > The unused error in the catch is harmless but untidy.
+  > 
+  > fix these things
+
+- **Category**: Code Hardening / Type Safety & Clean Code
+- **Objective**: Harden `parseGitHubUrl` with regex validation, strip `.git`, support `www.github.com`, introduce `TreeItem` interface, unify User-Agent headers, and remove unused catch parameter.
+- **Status**: Completed
+- **Actions Taken**:
+  - Defined `TreeItem` interface in [src/types.ts](file:///c:/Users/ratho/OneDrive/Desktop/sachin/ai/owl/src/types.ts) and [src/utils/github.ts](file:///c:/Users/ratho/OneDrive/Desktop/sachin/ai/owl/src/utils/github.ts) replacing all `any` types.
+  - Updated `parseGitHubUrl` to support `www.github.com`, strip `.git`, validate owner/repo with `^[A-Za-z0-9_.-]+$`, and use clean `catch { return null; }`.
+  - Unified `USER_AGENT = 'Owl-Cloudflare-Agent'` constant across all API calls.
+
+### Prompt #7 — [2026-10-07 22:41:35 IST]
+
+- **Prompt**:
+  > /ponytail File ranking is mostly arbitrary. Only a handful of files score above 0, so after the README, manifest, and entry points, the remaining slots go to whatever sorts first alphabetically. Add a few signals: source extensions (.ts, .py, .go), shallow paths over deep ones, and directories like src, lib, app, cmd, internal, server.
+  > 
+  > and make sure to add every prompt in the prompt.md  as wll
+
+- **Category**: Algorithm Improvement / Heuristic File Ranking
+- **Objective**: Upgrade `scoreFile` in `getImportantFiles` with multi-signal heuristics: source extensions, source directory boosts, entry point signals, and shallow path preferences (depth penalty).
+- **Status**: Completed
+- **Actions Taken**:
+  - Implemented multi-signal file scoring in [scoreFile](file:///c:/Users/ratho/OneDrive/Desktop/sachin/ai/owl/src/utils/github.ts#L79):
+    1. README (+100) and package manifests (+80).
+    2. Entry points (`main`, `index`, `app`, `server`, etc.) (+50).
+    3. Core source folders (`src/`, `lib/`, `app/`, `cmd/`, `internal/`, `server/`, `pkg/`, `core/`) (+20).
+    4. Source code extensions (`.ts`, `.py`, `.go`, `.dart`, `.rs`, `.java`, etc.) (+15).
+    5. Config/schema extensions (`.json`, `.yaml`, `.toml`, etc.) (+5).
+    6. Depth penalty (`- depth * 2`) to prioritize shallow files over deeply nested ones.
+    7. Stable alphabetical tie-breaker.
+  - Ran `test/test-github.ts` and verified ranked output on `shiks2/OpenGIF`.
+  - Updated [PROMPTS.md](file:///c:/Users/ratho/OneDrive/Desktop/sachin/ai/owl/PROMPTS.md) with chronological logs for all prompts.
+
+### Prompt #8 — [2026-10-07 22:45:42 IST]
+
+- **Prompt**:
+  > /ponytail Send the LLM the full list of paths, not only the 15 files. Then it understands the structure even for files you didn't fetch, and later you could let it choose which files to read.
+  > The tree can be truncated. For very large repos GitHub sets truncated: true in the response. Check it, and tell the user instead of silently analyzing part of a repo.
+
+- **Category**: Architecture Enhancement / Structural Context & Truncation Handling
+- **Objective**: Return the entire list of file paths from `fetchRepoTree` to give LLM full structural awareness of the repository, detect GitHub tree truncation flag (`truncated: true`), and warn users when a repository exceeds API tree limits.
+- **Status**: Completed
+- **Actions Taken**:
+  - Introduced `RepoTreeResult` interface in [src/types.ts](file:///c:/Users/ratho/OneDrive/Desktop/sachin/ai/owl/src/types.ts) and [src/utils/github.ts](file:///c:/Users/ratho/OneDrive/Desktop/sachin/ai/owl/src/utils/github.ts) with `{ tree: TreeItem[], truncated: boolean, allPaths: string[] }`.
+  - Updated `fetchRepoTree` to extract `allPaths` and inspect `truncated` boolean from GitHub Git Trees response.
+  - Updated [test/test-github.ts](file:///c:/Users/ratho/OneDrive/Desktop/sachin/ai/owl/test/test-github.ts) to report total file count and surface truncation warnings.
+  - Executed test and verified complete file list (300 files) is exposed alongside top ranked files.
+
+### Prompt #9 — [2026-10-07 22:58:18 IST]
+
+- **Prompt**:
+  > /ponytail  Now lets work on this Error messages. response.statusText isn't useful to the user. Map 404 to "repo not found or private," and 403 or 429 to "rate limited." Workers share IP addresses, so unauthenticated calls (60 per hour) will hit that limit sooner than you'd expect. Pass a token from a Worker secret.
+  > i have created an wrangler secret variable called GITHUB_TOKEN
+  > to use it access it like this
+  > Pass env.GITHUB_TOKEN into functions
+
+- **Category**: Error Handling & Authentication / GitHub API Limits
+- **Objective**: Replace generic `response.statusText` errors with user-friendly error mappings (404 -> repo not found or private, 403/429 -> rate limited), support passing `env.GITHUB_TOKEN` secret to prevent IP-shared rate limits on Cloudflare Workers.
+- **Status**: Completed
+- **Actions Taken**:
+  - Updated [fetchRepoTree](file:///c:/Users/ratho/OneDrive/Desktop/sachin/ai/owl/src/utils/github.ts#L44) to map 404 to `"Repository \"${owner}/${repo}\" not found or private."` and 403/429 to `"GitHub API rate limit exceeded. Set GITHUB_TOKEN secret to increase limits."`.
+  - Updated [fetchFileContents](file:///c:/Users/ratho/OneDrive/Desktop/sachin/ai/owl/src/utils/github.ts#L130) to surface rate limit errors immediately rather than quietly dropping files.
+  - Updated [test/test-github.ts](file:///c:/Users/ratho/OneDrive/Desktop/sachin/ai/owl/test/test-github.ts) to accept `process.env.GITHUB_TOKEN`.
+  - Verified 404 and rate limit error mapping via automated unit test.
+
+
+
+
+
+
+
+

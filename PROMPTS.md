@@ -150,10 +150,66 @@ This document maintains a chronological record of all user prompts, tasks, and t
   - Updated [test/test-github.ts](file:///c:/Users/ratho/OneDrive/Desktop/sachin/ai/owl/test/test-github.ts) to accept `process.env.GITHUB_TOKEN`.
   - Verified 404 and rate limit error mapping via automated unit test.
 
+### Prompt #10 — [2026-10-07 23:18:29 IST]
 
+- **Prompt**:
+  > /ponytail # UI & Integration Constraints for "Owl" (Cloudflare Agents Starter)
+  > 
+  > You are tasked with wiring up the frontend of this application to a new backend flow. Your absolute highest priority is **preserving the existing UI template and theme**.
+  > ...
+  > We are turning this into an app that quizzes users on GitHub repositories. Implement the following logic in the chat interface:
+  > 1. Initial Greeting: When a user creates or enters a completely new, empty chat session, the agent must automatically send the first message: "Hi! Please paste the link of a public GitHub repository to get started."
+  > 2. URL Handling: When the user sends a message, check if it's a valid GitHub URL. If it is, send it to the backend as usual.
+  > 3. Status Updates: The backend will send transient status messages via WebSocket (e.g., "Fetching repository...", "Analyzing codebase..."). Render these using the existing system/agent message UI...
 
+- **Category**: Frontend Integration / UI Preservation
+- **Objective**: Implement an onboarding greeting and transient status indicator on the chat interface without breaking or inventing new UI components.
+- **Status**: Completed
+- **Actions Taken**:
+  - Replaced the `<Empty />` initial state in `app.tsx` with a pre-injected mock assistant message for the initial greeting: `"Hi! Please paste the link of a public GitHub repository to get started."`.
+  - Added `transientStatus` React state to track WebSocket status messages (type: `"status"` and `"clear-status"`).
+  - Designed the status update to reuse the existing `Surface`, `GearIcon` (with animation), and `Text` styling used by the execution components.
+  - Automatically clears transient status when streaming stops or the backend requests a clear.
 
+### Prompt #11 — [2026-10-07 23:26:40 IST]
 
+- **Prompt**:
+  > /ponytail I have written the GitHub ingestion logic in `src/utils/github.ts` and the LLM logic using Cloudflare Workers AI in `src/utils/ai.ts`.
+  > 
+  > Please update the Durable Object (likely `src/agent.ts` or `src/index.ts`) to handle the state machine for our repository interview app.
+  > 
+  > Here is the exact flow you need to implement in the `onMessage` (or equivalent) handler:
+  > 1. When a user sends a message, check if it's a GitHub URL using `parseGitHubUrl`.
+  > 2. If it IS a GitHub URL, set the state to `ingesting` and broadcast a status message to the UI: "Fetching repository...".
+  > 3. Call `fetchRepoTree`, `getImportantFiles`, and `fetchFileContents`.
+  > 4. Broadcast status: "Analyzing codebase architecture with Llama 3.3..."
+  > 5. Call `generateRepoMap` and save the result to the Durable Object storage.
+  > 6. Broadcast status: "Generating your interview questions..."
+  > 7. Call `generateQuestions`, save them to storage, and set the state to `interviewing`.
+  > 8. Send the very first question to the user as a normal chat message to start the interview.
+  > 
+  > Ensure `env.AI` is passed to the AI utility functions correctly. Do not change the way WebSockets are handled or connected; only modify the message processing logic.
 
+- **Category**: Backend Integration / State Machine
+- **Objective**: Implement the backend GitHub ingestion, code analysis, and interview question generation pipeline within the `ChatAgent`'s Durable Object flow.
+- **Status**: Completed
+- **Actions Taken**:
+  - Imported necessary AI and GitHub utility functions into `src/server.ts`.
+  - Added logic in `onChatMessage` to capture the last user message and detect if it is a GitHub URL via `parseGitHubUrl`.
+  - Used `this.ctx.storage.put` to save the `"state"` as `"ingesting"`, then `"repoMap"`, `"questions"`, and finally state as `"interviewing"`.
+  - Added real-time feedback using `this.broadcast` with `"status"` and `"clear-status"` types to seamlessly interoperate with the frontend status display.
+  - Started the interview loop by passing the very first question into a hardcoded Llama 3.3 model prompt to yield it perfectly as a Vercel AI SDK text stream via `toUIMessageStreamResponse()`.
 
+### Prompt #12 — [2026-10-07 23:31:46 IST]
 
+- **Prompt**:
+  > /ponytail Build failed with 3 errors:
+  > [MISSING_EXPORT] "RepoMap" is not exported by "src/types.ts".
+  > [MISSING_EXPORT] "Question" is not exported by "src/types.ts".
+  > [MISSING_EXPORT] "GithubFile" is not exported by "src/utils/github.ts".
+
+- **Category**: Bug Fix / Build Error
+- **Objective**: Resolve Vite/Wrangler build errors caused by missing `import type` syntax for TypeScript interfaces.
+- **Status**: Completed
+- **Actions Taken**:
+  - Updated `src/utils/ai.ts` to use `import type { RepoMap, Question }` and `import type { GithubFile }`, ensuring that the esbuild bundler correctly strips them and fixes the `MISSING_EXPORT` errors.

@@ -265,6 +265,7 @@ function Chat() {
   const [showDebug, setShowDebug] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [transientStatus, setTransientStatus] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -302,6 +303,10 @@ function Chat() {
               description: data.description,
               timeout: 0
             });
+          } else if (data.type === "status") {
+            setTransientStatus(data.message || data.status);
+          } else if (data.type === "clear-status") {
+            setTransientStatus(null);
           }
         } catch {
           // Not JSON or not our event
@@ -375,6 +380,12 @@ function Chat() {
   });
 
   const isStreaming = status === "streaming" || status === "submitted";
+
+  useEffect(() => {
+    if (!isStreaming) {
+      setTransientStatus(null);
+    }
+  }, [isStreaming]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -697,42 +708,14 @@ function Chat() {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-5 py-6 space-y-5">
-          {messages.length === 0 && (
-            <Empty
-              icon={<ChatCircleDotsIcon size={32} />}
-              title="Start a conversation"
-              contents={
-                <div className="flex flex-wrap justify-center gap-2">
-                  {[
-                    "What's the weather in Paris?",
-                    "What timezone am I in?",
-                    "Calculate 5000 * 3",
-                    "Remind me in 5 minutes to take a break"
-                  ].map((prompt) => (
-                    <Button
-                      key={prompt}
-                      variant="outline"
-                      size="sm"
-                      disabled={isStreaming}
-                      onClick={() => {
-                        sendMessage({
-                          role: "user",
-                          parts: [{ type: "text", text: prompt }]
-                        });
-                      }}
-                    >
-                      {prompt}
-                    </Button>
-                  ))}
-                </div>
-              }
-            />
-          )}
-
-          {messages.map((message: UIMessage, index: number) => {
+          {[{
+            id: "onboarding-greeting",
+            role: "assistant",
+            parts: [{ type: "text", text: "Hi! Please paste the link of a public GitHub repository to get started." }]
+          } as unknown as UIMessage, ...messages].map((message, index, arr) => {
             const isUser = message.role === "user";
             const isLastAssistant =
-              message.role === "assistant" && index === messages.length - 1;
+              message.role === "assistant" && index === arr.length - 1;
 
             return (
               <div key={message.id} className="space-y-2">
@@ -841,6 +824,19 @@ function Chat() {
               </div>
             );
           })}
+
+          {transientStatus && (
+            <div className="flex justify-start">
+              <Surface className="max-w-[85%] px-4 py-2.5 rounded-xl ring ring-kumo-line">
+                <div className="flex items-center gap-2">
+                  <GearIcon size={14} className="text-kumo-inactive animate-spin" />
+                  <Text size="xs" variant="secondary">
+                    {transientStatus}
+                  </Text>
+                </div>
+              </Surface>
+            </div>
+          )}
 
           <div ref={messagesEndRef} />
         </div>

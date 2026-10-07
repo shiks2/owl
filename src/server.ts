@@ -10,6 +10,8 @@ import {
   tool
 } from "ai";
 import { z } from "zod";
+import { parseGitHubUrl, fetchRepoTree, getImportantFiles, fetchFileContents } from "./utils/github";
+import { generateRepoMap, generateQuestions } from "./utils/ai";
 
 export class ChatAgent extends AIChatAgent<Env> {
   maxPersistedMessages = 100;
@@ -47,6 +49,53 @@ export class ChatAgent extends AIChatAgent<Env> {
   }
 
   async onChatMessage(_onFinish: unknown, options?: OnChatMessageOptions) {
+    const lastMessage = this.messages[this.messages.length - 1];
+    let textContent = "";
+    if (lastMessage.parts) {
+      for (const part of lastMessage.parts) {
+        if (part.type === "text") {
+          textContent = part.text;
+          break;
+        }
+      }
+    }
+
+    const githubRepo = parseGitHubUrl(textContent);
+
+    if (githubRepo) {
+      await this.ctx.storage.put("state", "ingesting");
+      this.broadcast(JSON.stringify({ type: "status", status: "Fetching repository..." }));
+
+      const githubToken = (this.env as any).GITHUB_TOKEN;
+      const repoTree = await fetchRepoTree(githubRepo.owner, githubRepo.repo, githubToken);
+      const importantFiles = getImportantFiles(repoTree.tree, 15);
+      const fileContents = await fetchFileContents(githubRepo.owner, githubRepo.repo, importantFiles, githubToken);
+
+      this.broadcast(JSON.stringify({ type: "status", status: "Analyzing codebase architecture with Llama 3.3..." }));
+
+      const repoMap = await generateRepoMap(this.env, githubRepo.owner, githubRepo.repo, fileContents);
+      await this.ctx.storage.put("repoMap", repoMap);
+
+      this.broadcast(JSON.stringify({ type: "status", status: "Generating your interview questions..." }));
+
+      const questions = await generateQuestions(this.env, repoMap);
+      await this.ctx.storage.put("questions", questions);
+      await this.ctx.storage.put("state", "interviewing");
+
+      this.broadcast(JSON.stringify({ type: "clear-status" }));
+
+      const firstQuestion = questions[0].text;
+      const workersai = createWorkersAI({ binding: this.env.AI });
+      const result = streamText({
+        model: workersai("@cf/meta/llama-3.3-70b-instruct-fp8-fast", {
+          sessionAffinity: this.sessionAffinity
+        }),
+        prompt: `You are an interviewer. Start the interview by asking exactly this question and saying absolutely nothing else: "${firstQuestion}"`,
+      });
+
+      return result.toUIMessageStreamResponse();
+    }
+
     const mcpTools = this.mcp.getAITools();
     const workersai = createWorkersAI({ binding: this.env.AI });
 

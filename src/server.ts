@@ -1,6 +1,5 @@
 import { createWorkersAI } from "workers-ai-provider";
-import { callable, routeAgentRequest, type Schedule } from "agents";
-import { getSchedulePrompt, scheduleSchema } from "agents/schedule";
+import { callable, routeAgentRequest } from "agents";
 import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
 import {
   convertToModelMessages,
@@ -8,17 +7,15 @@ import {
   createUIMessageStreamResponse,
   pruneMessages,
   stepCountIs,
-  streamText,
-  tool
+  streamText
 } from "ai";
-import { z } from "zod";
 import {
   parseGitHubUrl,
   fetchRepoTree,
   getImportantFiles,
   fetchFileContents
 } from "./utils/github";
-import { generateRepoMap, generateQuestions } from "./utils/ai";
+import { generateRepoMap, generateQuestions, evaluateAnswer } from "./utils/ai";
 
 // Stream a known piece of text as an assistant UI message WITHOUT calling a
 // model. The fp8 Llama model tends to loop/repeat when asked to reproduce a
@@ -139,6 +136,42 @@ export class ChatAgent extends AIChatAgent<Env> {
       return textMessageStreamResponse(firstQuestion);
     }
 
+    const state = await this.ctx.storage.get("state");
+    if (state === "interviewing") {
+      const questions = (await this.ctx.storage.get("questions")) as any[];
+      let currentIdx = ((await this.ctx.storage.get("currentQuestionIndex")) as number) || 0;
+      
+      const question = questions[currentIdx];
+      
+      this.broadcast(JSON.stringify({ type: "status", status: "Evaluating your answer..." }));
+      const feedback = await evaluateAnswer(this.env, question, textContent);
+      this.broadcast(JSON.stringify({ type: "clear-status" }));
+      
+      let answers = (await this.ctx.storage.get("answers")) as any[] || [];
+      answers.push({
+        questionId: question.id,
+        userText: textContent,
+        evaluation: feedback.feedback,
+        passed: feedback.passed
+      });
+      await this.ctx.storage.put("answers", answers);
+      
+      currentIdx++;
+      await this.ctx.storage.put("currentQuestionIndex", currentIdx);
+      
+      if (currentIdx < questions.length) {
+        const nextQ = questions[currentIdx].text;
+        const msg = `${feedback.feedback}\n\n---\n\n**Next Question:** ${nextQ}`;
+        return textMessageStreamResponse(msg);
+      } else {
+        await this.ctx.storage.put("state", "completed");
+        const passCount = answers.filter((a) => a.passed).length;
+        const msg = `${feedback.feedback}\n\n---\n\n**Interview Complete!** You passed ${passCount} out of ${questions.length} questions. Thanks for participating.`;
+        return textMessageStreamResponse(msg);
+      }
+    }
+
+
     const mcpTools = this.mcp.getAITools();
     const workersai = createWorkersAI({ binding: this.env.AI });
 
@@ -146,11 +179,7 @@ export class ChatAgent extends AIChatAgent<Env> {
       model: workersai("@cf/meta/llama-3.3-70b-instruct-fp8-fast", {
         sessionAffinity: this.sessionAffinity
       }),
-      system: `You are a helpful assistant that can understand images. You can check the weather, get the user's timezone, run calculations, and schedule tasks. When users share images, describe what you see and answer questions about them.
-
-${getSchedulePrompt({ date: new Date() })}
-
-If the user asks to schedule a task, use the schedule tool to schedule the task.`,
+      system: `You are a helpful assistant. Only answer questions related to the current context.`,
       // Prune old tool calls and reasoning to save tokens on long conversations
       messages: pruneMessages({
         messages: await convertToModelMessages(this.messages),
@@ -159,117 +188,7 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
       }),
       tools: {
         // MCP tools from connected servers
-        ...mcpTools,
-
-        // Server-side tool: runs automatically on the server
-        getWeather: tool({
-          description: "Get the current weather for a city",
-          inputSchema: z.object({
-            city: z.string().describe("City name")
-          }),
-          execute: async ({ city }) => {
-            // Replace with a real weather API in production
-            const conditions = ["sunny", "cloudy", "rainy", "snowy"];
-            const temp = Math.floor(Math.random() * 30) + 5;
-            return {
-              city,
-              temperature: temp,
-              condition:
-                conditions[Math.floor(Math.random() * conditions.length)],
-              unit: "celsius"
-            };
-          }
-        }),
-
-        // Client-side tool: no execute function — the browser handles it
-        getUserTimezone: tool({
-          description:
-            "Get the user's timezone from their browser. Use this when you need to know the user's local time.",
-          inputSchema: z.object({})
-        }),
-
-        // Approval tool: requires user confirmation before executing
-        calculate: tool({
-          description:
-            "Perform a math calculation with two numbers. Requires user approval for large numbers.",
-          inputSchema: z.object({
-            a: z.number().describe("First number"),
-            b: z.number().describe("Second number"),
-            operator: z
-              .enum(["+", "-", "*", "/", "%"])
-              .describe("Arithmetic operator")
-          }),
-          needsApproval: async ({ a, b }) =>
-            Math.abs(a) > 1000 || Math.abs(b) > 1000,
-          execute: async ({ a, b, operator }) => {
-            const ops: Record<string, (x: number, y: number) => number> = {
-              "+": (x, y) => x + y,
-              "-": (x, y) => x - y,
-              "*": (x, y) => x * y,
-              "/": (x, y) => x / y,
-              "%": (x, y) => x % y
-            };
-            if (operator === "/" && b === 0) {
-              return { error: "Division by zero" };
-            }
-            return {
-              expression: `${a} ${operator} ${b}`,
-              result: ops[operator](a, b)
-            };
-          }
-        }),
-
-        scheduleTask: tool({
-          description:
-            "Schedule a task to be executed at a later time. Use this when the user asks to be reminded or wants something done later.",
-          inputSchema: scheduleSchema,
-          execute: async ({ when, description }) => {
-            if (when.type === "no-schedule") {
-              return "Not a valid schedule input";
-            }
-            const input =
-              when.type === "scheduled"
-                ? when.date
-                : when.type === "delayed"
-                  ? when.delayInSeconds
-                  : when.type === "cron"
-                    ? when.cron
-                    : null;
-            if (!input) return "Invalid schedule type";
-            try {
-              this.schedule(input, "executeTask", description, {
-                idempotent: true
-              });
-              return `Task scheduled: "${description}" (${when.type}: ${input})`;
-            } catch (error) {
-              return `Error scheduling task: ${error}`;
-            }
-          }
-        }),
-
-        getScheduledTasks: tool({
-          description: "List all tasks that have been scheduled",
-          inputSchema: z.object({}),
-          execute: async () => {
-            const tasks = this.getSchedules();
-            return tasks.length > 0 ? tasks : "No scheduled tasks found.";
-          }
-        }),
-
-        cancelScheduledTask: tool({
-          description: "Cancel a scheduled task by its ID",
-          inputSchema: z.object({
-            taskId: z.string().describe("The ID of the task to cancel")
-          }),
-          execute: async ({ taskId }) => {
-            try {
-              this.cancelSchedule(taskId);
-              return `Task ${taskId} cancelled.`;
-            } catch (error) {
-              return `Error cancelling task: ${error}`;
-            }
-          }
-        })
+        ...mcpTools
       },
       stopWhen: stepCountIs(20),
       abortSignal: options?.abortSignal
@@ -278,22 +197,6 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
     return result.toUIMessageStreamResponse();
   }
 
-  async executeTask(description: string, _task: Schedule<string>) {
-    // Do the actual work here (send email, call API, etc.)
-    console.log(`Executing scheduled task: ${description}`);
-
-    // Notify connected clients via a broadcast event.
-    // We use broadcast() instead of saveMessages() to avoid injecting
-    // into chat history — that would cause the AI to see the notification
-    // as new context and potentially loop.
-    this.broadcast(
-      JSON.stringify({
-        type: "scheduled-task",
-        description,
-        timestamp: new Date().toISOString()
-      })
-    );
-  }
 }
 
 export default {

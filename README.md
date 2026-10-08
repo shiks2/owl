@@ -76,6 +76,6 @@ npm run dev
 
 ---
 
-## 📜 Prompt History
+## 📜 How I built this
 
-This project was built using an AI-assisted agentic coding workflow. You can view the exact prompts, bug fixes, and iterative development logs in the [`PROMPTS.md`](./PROMPTS.md) file.
+This project was built iteratively using an AI-assisted agentic coding workflow. Key architectural decisions included using Cloudflare Durable Objects to manage state seamlessly without a separate database, leveraging Llama 3.3 for high-quality technical parsing, and ensuring a fast user experience by caching GitHub repository maps in Cloudflare KV.

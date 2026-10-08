@@ -25,6 +25,12 @@
       }
     ]
   },
+  "kv_namespaces": [
+    {
+      "binding": "REPO_CACHE",
+      "id": "4887819a289e4da88dec6efcea2ac061"
+    }
+  ],
   "migrations": [
     {
       "new_sqlite_classes": ["ChatAgent"],

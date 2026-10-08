@@ -351,3 +351,19 @@ This document maintains a chronological record of all user prompts, tasks, and t
   - Removed the redundant model round-trip: the first question is now streamed directly to the client as an assistant message using `createUIMessageStream` + `createUIMessageStreamResponse` (new `textMessageStreamResponse` helper in `src/server.ts`), no model call.
   - Verified `npm run check` passes.
   - Noted the question content (Supabase waitlist) is itself a hallucination unrelated to the repo — a separate model-quality concern.
+
+### Prompt #21 — [2026-10-08 20:12:00 IST]
+
+- **Prompt**:
+  > /ponytail "C:\Users\ratho\Downloads\todo.md"
+  > i have added all the tasks and fixes in this md file execute them one by one
+
+- **Category**: Polish & Implementation
+- **Objective**: Execute the priority tasks from the todo list to finish the app before submission.
+- **Status**: Completed
+- **Actions Taken**:
+  - **P0.1**: Implemented the full interview loop in `src/server.ts` `onChatMessage`, capturing user replies, calling a new `evaluateAnswer` function in `src/utils/ai.ts`, saving answers to DO state, and seamlessly advancing to the next question.
+  - **P0.2 & P0.3**: Updated `src/app.tsx` header to say `Owl` instead of `Agent Starter` and updated `package.json` name to `owl`.
+  - **P0.4**: Trimmed all the boilerplate agent tools (weather, calculate, schedule, etc.) from `src/server.ts` to focus the app purely on the interview experience.
+  - **P1.2**: Replaced the PROMPTS.md callout in `README.md` with a "How I built this" section.
+  - **P1.3**: Integrated Cloudflare KV by adding `REPO_CACHE` to `wrangler.jsonc` and implementing 24h caching in `generateRepoMap` to prevent redundant LLM calls.

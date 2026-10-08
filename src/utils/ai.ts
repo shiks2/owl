@@ -56,6 +56,13 @@ export async function generateRepoMap(
   repo: string,
   files: GithubFile[]
 ): Promise<RepoMap> {
+  const cacheKey = `repo:${owner}/${repo}`;
+  const repoCache = (env as any).REPO_CACHE;
+  if (repoCache) {
+    const cached = await repoCache.get(cacheKey);
+    if (cached) return JSON.parse(cached) as RepoMap;
+  }
+
   let contextString = `Repository: ${owner}/${repo}\n\n`;
   for (const f of files) {
     contextString += `--- FILE: ${f.path} ---\n${f.content.substring(0, 2500)}\n\n`;
@@ -76,7 +83,12 @@ You MUST respond with ONLY a valid JSON object matching this exact structure:
     { role: "user", content: `Analyze these files:\n${contextString}` }
   ]);
 
-  return result as RepoMap;
+  const repoMap = result as RepoMap;
+  if (repoCache) {
+    await repoCache.put(cacheKey, JSON.stringify(repoMap), { expirationTtl: 86400 });
+  }
+
+  return repoMap;
 }
 
 // 2. Generate interview questions based on the map
@@ -105,4 +117,33 @@ You MUST respond with ONLY a valid JSON object containing an array called "quest
 
   const parsed = result as { questions: Question[] };
   return parsed.questions;
+}
+
+export async function evaluateAnswer(
+  env: Env,
+  question: Question,
+  answer: string
+): Promise<{ passed: boolean; feedback: string }> {
+  const systemPrompt = `You are a senior software engineer interviewing a candidate.
+Evaluate their answer to the following question:
+Question: ${question.text}
+
+Their answer:
+${answer}
+
+You MUST respond with ONLY a valid JSON object matching this exact structure:
+{
+  "passed": true,
+  "feedback": "Your evaluation of their answer, being constructive but direct."
+}`;
+
+  const result = await runJson(env, [
+    { role: "system", content: systemPrompt }
+  ]);
+
+  const parsed = result as { passed: boolean; feedback: string };
+  return {
+    passed: Boolean(parsed.passed),
+    feedback: String(parsed.feedback)
+  };
 }

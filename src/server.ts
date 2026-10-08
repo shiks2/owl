@@ -35,6 +35,13 @@ function textMessageStreamResponse(text: string): Response {
   return createUIMessageStreamResponse({ stream });
 }
 
+// ── Abuse / cost controls (per session) ───────────────────────────────
+// Each session is a Durable Object. These caps bound how many times a single
+// session can trigger the expensive repo-ingestion pipeline (GitHub API calls
+// plus multiple LLM invocations), which is the main abuse/cost surface.
+const MAX_INTERVIEWS_PER_SESSION = 5;
+const INGEST_COOLDOWN_MS = 30_000; // 30s between interviews
+
 export class ChatAgent extends AIChatAgent<Env> {
   maxPersistedMessages = 100;
   chatRecovery = true;
@@ -82,62 +89,104 @@ export class ChatAgent extends AIChatAgent<Env> {
       }
     }
 
+    const state = await this.ctx.storage.get("state");
     const githubRepo = parseGitHubUrl(textContent);
 
-    if (githubRepo) {
+    // Only a repository URL can start a new interview, and never while one is
+    // already in progress — otherwise a URL inside a candidate's answer would
+    // wipe the current interview state.
+    if (githubRepo && state !== "interviewing") {
+      // ── Abuse / cost guard: bound the expensive ingestion pipeline ──
+      const now = Date.now();
+      const ingestCount =
+        ((await this.ctx.storage.get("ingestCount")) as number) ?? 0;
+      const lastIngestAt =
+        ((await this.ctx.storage.get("lastIngestAt")) as number) ?? 0;
+
+      if (ingestCount >= MAX_INTERVIEWS_PER_SESSION) {
+        return textMessageStreamResponse(
+          "You've reached the limit of repository interviews for this session. Open a new session to analyze another repository."
+        );
+      }
+      if (now - lastIngestAt < INGEST_COOLDOWN_MS) {
+        const waitSeconds = Math.ceil(
+          (INGEST_COOLDOWN_MS - (now - lastIngestAt)) / 1000
+        );
+        return textMessageStreamResponse(
+          `Please wait ${waitSeconds}s before analyzing another repository.`
+        );
+      }
+
+      await this.ctx.storage.put("lastIngestAt", now);
+      await this.ctx.storage.put("ingestCount", ingestCount + 1);
+
       await this.ctx.storage.put("state", "ingesting");
       this.broadcast(
         JSON.stringify({ type: "status", status: "Fetching repository..." })
       );
 
-      const githubToken = (this.env as Env & { GITHUB_TOKEN?: string })
-        .GITHUB_TOKEN;
-      const repoTree = await fetchRepoTree(
-        githubRepo.owner,
-        githubRepo.repo,
-        githubToken
-      );
-      const importantFiles = getImportantFiles(repoTree.tree, 15);
-      const fileContents = await fetchFileContents(
-        githubRepo.owner,
-        githubRepo.repo,
-        importantFiles,
-        githubToken
-      );
+      try {
+        const githubToken = (this.env as Env & { GITHUB_TOKEN?: string })
+          .GITHUB_TOKEN;
+        const repoTree = await fetchRepoTree(
+          githubRepo.owner,
+          githubRepo.repo,
+          githubToken
+        );
+        const importantFiles = getImportantFiles(repoTree.tree, 15);
+        const fileContents = await fetchFileContents(
+          githubRepo.owner,
+          githubRepo.repo,
+          importantFiles,
+          githubToken
+        );
 
-      this.broadcast(
-        JSON.stringify({
-          type: "status",
-          status: "Analyzing codebase architecture with Llama 3.3..."
-        })
-      );
+        this.broadcast(
+          JSON.stringify({
+            type: "status",
+            status: "Analyzing codebase architecture with Llama 3.3..."
+          })
+        );
 
-      const repoMap = await generateRepoMap(
-        this.env,
-        githubRepo.owner,
-        githubRepo.repo,
-        fileContents
-      );
-      await this.ctx.storage.put("repoMap", repoMap);
+        const repoMap = await generateRepoMap(
+          this.env,
+          githubRepo.owner,
+          githubRepo.repo,
+          fileContents
+        );
+        await this.ctx.storage.put("repoMap", repoMap);
 
-      this.broadcast(
-        JSON.stringify({
-          type: "status",
-          status: "Generating your interview questions..."
-        })
-      );
+        this.broadcast(
+          JSON.stringify({
+            type: "status",
+            status: "Generating your interview questions..."
+          })
+        );
 
-      const questions = await generateQuestions(this.env, repoMap);
-      await this.ctx.storage.put("questions", questions);
-      await this.ctx.storage.put("state", "interviewing");
+        const questions = await generateQuestions(this.env, repoMap);
 
-      this.broadcast(JSON.stringify({ type: "clear-status" }));
+        // Reset interview progress for a fresh interview.
+        await this.ctx.storage.put("questions", questions);
+        await this.ctx.storage.put("currentQuestionIndex", 0);
+        await this.ctx.storage.put("answers", []);
+        await this.ctx.storage.put("state", "interviewing");
 
-      const firstQuestion = questions[0].text;
-      return textMessageStreamResponse(firstQuestion);
+        this.broadcast(JSON.stringify({ type: "clear-status" }));
+
+        return textMessageStreamResponse(questions[0].text);
+      } catch (error) {
+        await this.ctx.storage.put("state", "idle");
+        this.broadcast(JSON.stringify({ type: "clear-status" }));
+        const reason =
+          error instanceof Error
+            ? error.message
+            : "an unexpected error occurred";
+        return textMessageStreamResponse(
+          `Sorry, I couldn't analyze that repository (${reason}). Please make sure it's a public GitHub repo and try again.`
+        );
+      }
     }
 
-    const state = await this.ctx.storage.get("state");
     if (state === "interviewing") {
       const questions =
         (await this.ctx.storage.get<Question[]>("questions")) ?? [];
@@ -145,6 +194,14 @@ export class ChatAgent extends AIChatAgent<Env> {
         ((await this.ctx.storage.get("currentQuestionIndex")) as number) || 0;
 
       const question = questions[currentIdx];
+
+      // Defensive: end gracefully if the index is out of sync with the data.
+      if (!question) {
+        await this.ctx.storage.put("state", "completed");
+        return textMessageStreamResponse(
+          "The interview has concluded. Thanks for participating!"
+        );
+      }
 
       this.broadcast(
         JSON.stringify({ type: "status", status: "Evaluating your answer..." })

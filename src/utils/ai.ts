@@ -93,6 +93,31 @@ You MUST respond with ONLY a valid JSON object matching this exact structure:
   return repoMap;
 }
 
+// Normalize and validate a single question object from the model. Returns null
+// if the item is not a usable question (missing/invalid text), so callers can
+// filter and detect empty results.
+function normalizeQuestion(value: unknown, index: number): Question | null {
+  if (!value || typeof value !== "object") return null;
+  const q = value as Record<string, unknown>;
+
+  const text = typeof q.text === "string" ? q.text.trim() : "";
+  if (!text) return null;
+
+  const difficulty: Question["difficulty"] =
+    q.difficulty === "implementation" || q.difficulty === "security"
+      ? q.difficulty
+      : "architecture";
+
+  return {
+    id: typeof q.id === "string" && q.id ? q.id : `q${index + 1}`,
+    text,
+    relatedFiles: Array.isArray(q.relatedFiles)
+      ? q.relatedFiles.filter((f): f is string => typeof f === "string")
+      : [],
+    difficulty
+  };
+}
+
 // 2. Generate interview questions based on the map
 export async function generateQuestions(
   env: Env,
@@ -117,8 +142,20 @@ You MUST respond with ONLY a valid JSON object containing an array called "quest
     { role: "user", content: JSON.stringify(repoMap) }
   ]);
 
-  const parsed = result as { questions: Question[] };
-  return parsed.questions;
+  const parsed = result as { questions?: unknown };
+  const questions = Array.isArray(parsed.questions)
+    ? parsed.questions
+        .map(normalizeQuestion)
+        .filter((q): q is Question => q !== null)
+    : [];
+
+  if (questions.length === 0) {
+    throw new Error(
+      "Failed to generate interview questions (empty or invalid result)"
+    );
+  }
+
+  return questions;
 }
 
 export async function evaluateAnswer(

@@ -57,7 +57,7 @@ export async function generateRepoMap(
   files: GithubFile[]
 ): Promise<RepoMap> {
   const cacheKey = `repo:${owner}/${repo}`;
-  const repoCache = (env as Env & { REPO_CACHE?: KVNamespace }).REPO_CACHE;
+  const repoCache = env.REPO_CACHE;
   if (repoCache) {
     const cached = await repoCache.get(cacheKey);
     if (cached) return JSON.parse(cached) as RepoMap;

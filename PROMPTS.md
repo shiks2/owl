@@ -416,3 +416,19 @@ This document maintains a chronological record of all user prompts, tasks, and t
   - Deleted an accidentally-created `worker-configuration.d.ts` (default output of `wrangler types` without an output path).
   - Verified `npm run check` exits 0.
   - Committed and pushed to `main` as `ca0e28a`.
+
+### Prompt #25 — [2026-10-08 21:25:00 IST]
+
+- **Prompt**:
+
+  > fix all the issue with the high tag
+
+- **Category**: Bug Fix / Security hardening
+- **Objective**: Resolve the three "High" issues from the earlier code review.
+- **Status**: Completed
+- **Actions Taken**:
+  - **High #1 (GitHub URL in an answer reset the interview):** Reordered `onChatMessage` in `src/server.ts` to read `state` first and gate repo ingestion on `state !== "interviewing"`, so a URL inside a candidate's answer no longer triggers re-ingestion.
+  - **High #2 (`questions[i].text` crash):** Added a `normalizeQuestion` validator in `src/utils/ai.ts` that filters malformed questions and throws on an empty result; wrapped the whole ingestion pipeline in try/catch (reset state to `idle` + friendly error message on failure); added a `if (!question)` guard in the interview loop; and reset `currentQuestionIndex`/`answers` when starting a new interview.
+  - **High #3 (unbounded cost/abuse):** Added per-session rate limiting in `src/server.ts` — `MAX_INTERVIEWS_PER_SESSION = 5` and `INGEST_COOLDOWN_MS = 30_000` — enforced via `ingestCount`/`lastIngestAt` in Durable Object storage, with friendly rate-limit messages.
+  - Verified `npm run check` exits 0.
+  - Committed and pushed to `main` as `f5abc4d`.

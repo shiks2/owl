@@ -39,6 +39,27 @@ import {
   ImageIcon
 } from "@phosphor-icons/react";
 
+// ── Session identity ──────────────────────────────────────────────────
+// Every user gets a unique, persistent session id so their chat is routed to
+// its own Durable Object instance. Without this, all visitors share the same
+// "default" agent instance and would see each other's chat history.
+
+const SESSION_STORAGE_KEY = "owl.sessionId";
+
+function getOrCreateSessionId(): string {
+  try {
+    const existing = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (existing) return existing;
+    const id = crypto.randomUUID();
+    localStorage.setItem(SESSION_STORAGE_KEY, id);
+    return id;
+  } catch {
+    // localStorage unavailable (private browsing, etc.) — fall back to a
+    // fresh id for this page load only.
+    return crypto.randomUUID();
+  }
+}
+
 // ── Attachment helpers ────────────────────────────────────────────────
 
 interface Attachment {
@@ -281,8 +302,13 @@ function Chat() {
   const [isAddingServer, setIsAddingServer] = useState(false);
   const mcpPanelRef = useRef<HTMLDivElement>(null);
 
+  // Stable session id: persisted in localStorage so reloads reconnect to the
+  // same Durable Object (and chat recovery restores the conversation).
+  const [sessionId] = useState(() => getOrCreateSessionId());
+
   const agent = useAgent<ChatAgent>({
     agent: "ChatAgent",
+    name: sessionId,
     onOpen: useCallback(() => setConnected(true), []),
     onClose: useCallback(() => setConnected(false), []),
     onError: useCallback(

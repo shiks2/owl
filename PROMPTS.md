@@ -367,3 +367,18 @@ This document maintains a chronological record of all user prompts, tasks, and t
   - **P0.4**: Trimmed all the boilerplate agent tools (weather, calculate, schedule, etc.) from `src/server.ts` to focus the app purely on the interview experience.
   - **P1.2**: Replaced the PROMPTS.md callout in `README.md` with a "How I built this" section.
   - **P1.3**: Integrated Cloudflare KV by adding `REPO_CACHE` to `wrangler.jsonc` and implementing 24h caching in `generateRepoMap` to prevent redundant LLM calls.
+
+### Prompt #22 — [2026-10-08 20:35:00 IST]
+
+- **Prompt**:
+  > so what i need to do is implement the session id in chat so user dont see the chat of someone else chat
+
+- **Category**: Security / Multi-user session isolation
+- **Objective**: Ensure each visitor has their own isolated chat (Durable Object) so users don't see another user's conversation.
+- **Status**: Completed
+- **Actions Taken**:
+  - Identified the root cause: `useAgent<ChatAgent>({ agent: "ChatAgent" })` in `src/app.tsx` was called without a `name`, so the `agents` SDK routed every visitor to the same `"default"` Durable Object instance, sharing chat history.
+  - Added a `getOrCreateSessionId()` helper in `src/app.tsx` that generates a `crypto.randomUUID()` and persists it in `localStorage` under `owl.sessionId` (so reloads reconnect to the same instance and chat recovery still works).
+  - Wired the session id into the hook via `useState(() => getOrCreateSessionId())` and passed `name: sessionId` to `useAgent`, giving each user a unique, isolated Durable Object.
+  - Confirmed no server changes are needed (`routeAgentRequest` routes `/agents/chat-agent/{name}` to a per-name Durable Object); `useAgentChat` inherits the scoped agent connection.
+  - Verified `npx tsc --noEmit` passes.

@@ -16,6 +16,7 @@ import {
   fetchFileContents
 } from "./utils/github";
 import { generateRepoMap, generateQuestions, evaluateAnswer } from "./utils/ai";
+import type { Question, AnswerState } from "./types";
 
 // Stream a known piece of text as an assistant UI message WITHOUT calling a
 // model. The fp8 Llama model tends to loop/repeat when asked to reproduce a
@@ -138,16 +139,21 @@ export class ChatAgent extends AIChatAgent<Env> {
 
     const state = await this.ctx.storage.get("state");
     if (state === "interviewing") {
-      const questions = (await this.ctx.storage.get("questions")) as any[];
-      let currentIdx = ((await this.ctx.storage.get("currentQuestionIndex")) as number) || 0;
-      
+      const questions =
+        (await this.ctx.storage.get<Question[]>("questions")) ?? [];
+      let currentIdx =
+        ((await this.ctx.storage.get("currentQuestionIndex")) as number) || 0;
+
       const question = questions[currentIdx];
-      
-      this.broadcast(JSON.stringify({ type: "status", status: "Evaluating your answer..." }));
+
+      this.broadcast(
+        JSON.stringify({ type: "status", status: "Evaluating your answer..." })
+      );
       const feedback = await evaluateAnswer(this.env, question, textContent);
       this.broadcast(JSON.stringify({ type: "clear-status" }));
-      
-      let answers = (await this.ctx.storage.get("answers")) as any[] || [];
+
+      let answers =
+        (await this.ctx.storage.get<AnswerState[]>("answers")) ?? [];
       answers.push({
         questionId: question.id,
         userText: textContent,
@@ -155,10 +161,10 @@ export class ChatAgent extends AIChatAgent<Env> {
         passed: feedback.passed
       });
       await this.ctx.storage.put("answers", answers);
-      
+
       currentIdx++;
       await this.ctx.storage.put("currentQuestionIndex", currentIdx);
-      
+
       if (currentIdx < questions.length) {
         const nextQ = questions[currentIdx].text;
         const msg = `${feedback.feedback}\n\n---\n\n**Next Question:** ${nextQ}`;
@@ -170,7 +176,6 @@ export class ChatAgent extends AIChatAgent<Env> {
         return textMessageStreamResponse(msg);
       }
     }
-
 
     const mcpTools = this.mcp.getAITools();
     const workersai = createWorkersAI({ binding: this.env.AI });
@@ -196,7 +201,6 @@ export class ChatAgent extends AIChatAgent<Env> {
 
     return result.toUIMessageStreamResponse();
   }
-
 }
 
 export default {

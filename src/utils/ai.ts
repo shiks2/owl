@@ -57,7 +57,7 @@ export async function generateRepoMap(
   files: GithubFile[]
 ): Promise<RepoMap> {
   const cacheKey = `repo:${owner}/${repo}`;
-  const repoCache = (env as any).REPO_CACHE;
+  const repoCache = (env as Env & { REPO_CACHE?: KVNamespace }).REPO_CACHE;
   if (repoCache) {
     const cached = await repoCache.get(cacheKey);
     if (cached) return JSON.parse(cached) as RepoMap;
@@ -85,7 +85,9 @@ You MUST respond with ONLY a valid JSON object matching this exact structure:
 
   const repoMap = result as RepoMap;
   if (repoCache) {
-    await repoCache.put(cacheKey, JSON.stringify(repoMap), { expirationTtl: 86400 });
+    await repoCache.put(cacheKey, JSON.stringify(repoMap), {
+      expirationTtl: 86400
+    });
   }
 
   return repoMap;
